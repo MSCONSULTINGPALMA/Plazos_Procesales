@@ -456,20 +456,20 @@ export default function App() {
       <div className="w-full max-w-3xl bg-white rounded-xl shadow-lg overflow-hidden h-fit shrink-0">
         {/* Header */}
         <div className="bg-[#1e40af] text-white p-6 flex flex-col sm:flex-row items-center gap-6 relative">
-          <div className="bg-white p-2 rounded-lg shadow-sm h-20 w-48 flex items-center justify-center shrink-0 relative group">
+          <div className="bg-white p-3 rounded-xl shadow-lg border-4 border-white/30 bg-clip-padding h-24 w-56 flex items-center justify-center shrink-0 relative group">
             {logoBase64 ? (
               <>
                 <img 
                   src={logoBase64} 
                   alt="Morey Salvá Consulting" 
-                  className="max-h-full max-w-full object-contain"
+                  className="w-full h-full object-contain"
                 />
                 <button 
                   onClick={removeLogo}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                  className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:bg-red-600"
                   title="Eliminar logo"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-4 h-4" />
                 </button>
               </>
             ) : (
