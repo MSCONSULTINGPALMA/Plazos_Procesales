@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, RotateCcw, Info, Save, History, Trash2, ChevronRight, FileDown, Upload, Sparkles, X } from 'lucide-react';
+import { Calendar, RotateCcw, Info, Save, History, Trash2, ChevronRight, FileDown, Upload, Sparkles, X, Bell, AlertTriangle, Settings } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -69,9 +69,19 @@ export default function App() {
     return [];
   });
 
+  const [diasAviso, setDiasAviso] = useState<number>(() => {
+    const saved = localStorage.getItem('diasAviso');
+    return saved ? parseInt(saved, 10) : 3;
+  });
+  const [showNotificaciones, setShowNotificaciones] = useState(false);
+
   useEffect(() => {
     localStorage.setItem('historialPlazos', JSON.stringify(historial));
   }, [historial]);
+
+  useEffect(() => {
+    localStorage.setItem('diasAviso', diasAviso.toString());
+  }, [diasAviso]);
 
   useEffect(() => {
     setCondiciones(defaultCondiciones[jurisdiccion]);
@@ -174,6 +184,23 @@ export default function App() {
 
     setResultado(currentDate);
   };
+
+  const getNotificaciones = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return historial.filter(h => {
+      const vencimiento = new Date(h.resultado);
+      vencimiento.setHours(0, 0, 0, 0);
+      
+      const diffTime = vencimiento.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return diffDays >= -7 && diffDays <= diasAviso;
+    }).sort((a, b) => new Date(a.resultado).getTime() - new Date(b.resultado).getTime());
+  };
+
+  const notificaciones = getNotificaciones();
 
   const handleLimpiar = () => {
     setJurisdiccion('Civil');
@@ -466,13 +493,27 @@ export default function App() {
             <h1 className="text-2xl font-bold tracking-wide">Cálculo de Plazos Procesales</h1>
             <p className="text-blue-100 text-sm font-medium mt-1">Área Jurídica</p>
           </div>
-          <button
-            onClick={() => setIsAiModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm font-medium border border-white/20 whitespace-nowrap"
-          >
-            <Sparkles className="w-4 h-4 text-amber-300" />
-            Rellenar con IA
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowNotificaciones(true)}
+              className="relative p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors border border-white/20"
+              title="Notificaciones"
+            >
+              <Bell className="w-5 h-5" />
+              {notificaciones.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {notificaciones.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setIsAiModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors text-sm font-medium border border-white/20 whitespace-nowrap"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              Rellenar con IA
+            </button>
+          </div>
         </div>
 
         <div className="p-8 space-y-8">
@@ -831,6 +872,84 @@ export default function App() {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Notifications Modal */}
+      {showNotificaciones && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-[#1e40af] text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-amber-300" />
+                <h3 className="font-semibold">Notificaciones de Vencimiento</h3>
+              </div>
+              <button onClick={() => setShowNotificaciones(false)} className="text-white/70 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-stone-200">
+                <label className="text-sm font-medium text-stone-700 flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-stone-500" />
+                  Avisar con días de antelación:
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="30"
+                  value={diasAviso}
+                  onChange={(e) => setDiasAviso(parseInt(e.target.value) || 0)}
+                  className="w-20 p-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-[#1e40af] focus:border-[#1e40af] outline-none text-center"
+                />
+              </div>
+
+              {notificaciones.length === 0 ? (
+                <div className="text-center py-8 text-stone-500">
+                  <Bell className="w-12 h-12 mx-auto text-stone-300 mb-3" />
+                  <p>No hay plazos próximos a vencer.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {notificaciones.map((notif) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const vencimiento = new Date(notif.resultado);
+                    vencimiento.setHours(0, 0, 0, 0);
+                    const diffTime = vencimiento.getTime() - today.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    let statusColor = "text-amber-600 bg-amber-50 border-amber-200";
+                    let statusText = `Vence en ${diffDays} día${diffDays !== 1 ? 's' : ''}`;
+                    
+                    if (diffDays < 0) {
+                      statusColor = "text-red-600 bg-red-50 border-red-200";
+                      statusText = `Venció hace ${Math.abs(diffDays)} día${Math.abs(diffDays) !== 1 ? 's' : ''}`;
+                    } else if (diffDays === 0) {
+                      statusColor = "text-red-600 bg-red-50 border-red-200";
+                      statusText = "¡Vence HOY!";
+                    }
+
+                    return (
+                      <div key={notif.id} className={`p-4 rounded-lg border ${statusColor} flex flex-col gap-2 cursor-pointer hover:shadow-md transition-shadow`} onClick={() => { cargarHistorial(notif); setShowNotificaciones(false); }}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2 font-semibold">
+                            <AlertTriangle className="w-4 h-4" />
+                            {notif.jurisdiccion} - {notif.plazo} {notif.tipoPlazo}
+                          </div>
+                          <span className="text-xs font-bold px-2 py-1 rounded-full bg-white/50">
+                            {statusText}
+                          </span>
+                        </div>
+                        <div className="text-sm opacity-90">
+                          Vencimiento: <span className="font-bold">{formatDate(notif.resultado)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
