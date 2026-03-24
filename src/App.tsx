@@ -25,6 +25,7 @@ interface CalculoHistorial {
   resultado: Date;
   fechaCalculo: Date;
   esActoConciliacion?: boolean;
+  direccionCalculo?: 'adelante' | 'atras';
 }
 
 const defaultCondiciones: Record<Jurisdiccion, Condiciones> = {
@@ -40,14 +41,31 @@ export default function App() {
   const [plazo, setPlazo] = useState<string>('');
   const [tipoPlazo, setTipoPlazo] = useState<TipoPlazo>('Días');
   const [fechaNotificacion, setFechaNotificacion] = useState<string>('');
+  const [direccionCalculo, setDireccionCalculo] = useState<'adelante' | 'atras'>('adelante');
   const [condiciones, setCondiciones] = useState<Condiciones>(defaultCondiciones['Civil']);
   const [festivosLocales, setFestivosLocales] = useState<string[]>([]);
   const [nuevoFestivo, setNuevoFestivo] = useState<string>('');
   const [resultado, setResultado] = useState<Date | null>(null);
   const [esActoConciliacion, setEsActoConciliacion] = useState<boolean>(false);
   
-  const [logoBase64, setLogoBase64] = useState<string | null>(() => localStorage.getItem('corporateLogo'));
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pdfLogo, setPdfLogo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLogo = async () => {
+      try {
+        const response = await fetch('https://i.imgur.com/amGE2wZ.png');
+        const blob = await response.blob();
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPdfLogo(reader.result as string);
+        };
+        reader.readAsDataURL(blob);
+      } catch (error) {
+        console.error('Error fetching logo for PDF:', error);
+      }
+    };
+    fetchLogo();
+  }, []);
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiText, setAiText] = useState('');
@@ -157,16 +175,18 @@ export default function App() {
     const [year, month, day] = fechaNotificacion.split('-').map(Number);
     let currentDate = new Date(year, month - 1, day);
 
+    const step = direccionCalculo === 'atras' ? -1 : 1;
+
     if (tipoPlazo === 'Días') {
       let daysAdded = 0;
       while (daysAdded < numPlazo) {
-        currentDate.setDate(currentDate.getDate() + 1);
+        currentDate.setDate(currentDate.getDate() + step);
         if (!isNonWorking(currentDate, condiciones)) {
           daysAdded++;
         }
       }
     } else if (tipoPlazo === 'Meses') {
-      const targetMonth = currentDate.getMonth() + numPlazo;
+      const targetMonth = currentDate.getMonth() + (numPlazo * step);
       const expectedMonth = targetMonth % 12;
       currentDate.setMonth(targetMonth);
       // Si el mes resultante no coincide (ej. 31 Ene + 1 mes -> 3 Mar), ajustamos al último día del mes esperado
@@ -174,12 +194,12 @@ export default function App() {
         currentDate.setDate(0);
       }
     } else if (tipoPlazo === 'Años') {
-      currentDate.setFullYear(currentDate.getFullYear() + numPlazo);
+      currentDate.setFullYear(currentDate.getFullYear() + (numPlazo * step));
     }
 
     // Comprobación para ver si la fecha resultante es un festivo según las condiciones. Si lo es, aplica el día de gracia.
     while (isNonWorking(currentDate, condiciones)) {
-      currentDate.setDate(currentDate.getDate() + 1);
+      currentDate.setDate(currentDate.getDate() + step);
     }
 
     setResultado(currentDate);
@@ -207,29 +227,12 @@ export default function App() {
     setPlazo('');
     setTipoPlazo('Días');
     setFechaNotificacion('');
+    setDireccionCalculo('adelante');
     setCondiciones(defaultCondiciones['Civil']);
     setFestivosLocales([]);
     setNuevoFestivo('');
     setResultado(null);
     setEsActoConciliacion(false);
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setLogoBase64(base64);
-        localStorage.setItem('corporateLogo', base64);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeLogo = () => {
-    setLogoBase64(null);
-    localStorage.removeItem('corporateLogo');
   };
 
   const analizarConIA = async () => {
@@ -243,7 +246,7 @@ export default function App() {
         
         Texto: "${aiText}"`,
         config: {
-          systemInstruction: "Eres un asistente legal experto en derecho español. Extrae la jurisdicción, el plazo numérico, el tipo de plazo y la fecha de notificación si se menciona. Si no se menciona la fecha, déjala vacía.",
+          systemInstruction: "Eres un asistente legal experto en derecho español. Extrae la jurisdicción, el plazo numérico, el tipo de plazo, la fecha de notificación si se menciona, y si el plazo es hacia adelante (desde la notificación) o hacia atrás (antelación respecto a una vista/juicio). Si no se menciona la fecha, déjala vacía.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -262,10 +265,14 @@ export default function App() {
               },
               fechaNotificacion: {
                 type: Type.STRING,
-                description: "La fecha de notificación en formato YYYY-MM-DD. Si no se indica, devuelve un string vacío.",
+                description: "La fecha de notificación o referencia en formato YYYY-MM-DD. Si no se indica, devuelve un string vacío.",
+              },
+              direccionCalculo: {
+                type: Type.STRING,
+                description: "La dirección del cálculo: 'adelante' (por defecto) o 'atras' (si se menciona antelación a una fecha).",
               }
             },
-            required: ["jurisdiccion", "plazo", "tipoPlazo", "fechaNotificacion"]
+            required: ["jurisdiccion", "plazo", "tipoPlazo", "fechaNotificacion", "direccionCalculo"]
           }
         }
       });
@@ -281,6 +288,9 @@ export default function App() {
         }
         if (data.fechaNotificacion) {
           setFechaNotificacion(data.fechaNotificacion);
+        }
+        if (['adelante', 'atras'].includes(data.direccionCalculo)) {
+          setDireccionCalculo(data.direccionCalculo as 'adelante' | 'atras');
         }
         setIsAiModalOpen(false);
         setAiText('');
@@ -305,7 +315,8 @@ export default function App() {
       festivosLocales,
       resultado,
       fechaCalculo: new Date(),
-      esActoConciliacion
+      esActoConciliacion,
+      direccionCalculo
     };
     setHistorial([nuevoCalculo, ...historial]);
   };
@@ -315,6 +326,7 @@ export default function App() {
     setPlazo(item.plazo);
     setTipoPlazo(item.tipoPlazo);
     setFechaNotificacion(item.fechaNotificacion);
+    setDireccionCalculo(item.direccionCalculo || 'adelante');
     setCondiciones(item.condiciones);
     setFestivosLocales(item.festivosLocales || []);
     setEsActoConciliacion(item.esActoConciliacion || false);
@@ -345,9 +357,9 @@ export default function App() {
     pdf.setFillColor(30, 64, 175); // #1e40af
     pdf.rect(0, 0, 210, 40, 'F');
     
-    if (logoBase64) {
+    if (pdfLogo) {
       try {
-        pdf.addImage(logoBase64, 'JPEG', 15, 5, 50, 30);
+        pdf.addImage(pdfLogo, 'PNG', 15, 5, 50, 30);
       } catch (e) {
         console.error("Error adding logo to PDF", e);
       }
@@ -371,8 +383,9 @@ export default function App() {
     };
 
     addRow('Jurisdicción:', jurisdiccion);
+    addRow('Dirección:', direccionCalculo === 'adelante' ? 'Hacia adelante' : 'Hacia atrás (antelación)');
     addRow('Plazo:', `${plazo} ${tipoPlazo}`);
-    addRow('Fecha de notificación:', new Date(fechaNotificacion).toLocaleDateString('es-ES'));
+    addRow(direccionCalculo === 'adelante' ? 'Fecha de notificación:' : 'Fecha de referencia:', new Date(fechaNotificacion).toLocaleDateString('es-ES'));
     
     y += 5;
     pdf.setDrawColor(200, 200, 200);
@@ -421,7 +434,7 @@ export default function App() {
     pdf.setTextColor(6, 78, 59); // emerald-900
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('Fecha de vencimiento:', 30, y + 15);
+    pdf.text(direccionCalculo === 'adelante' ? 'Fecha de vencimiento:' : 'Fecha límite de presentación:', 30, y + 15);
     
     pdf.setFontSize(18);
     pdf.text(formatDate(resultado), 30, y + 25);
@@ -456,37 +469,12 @@ export default function App() {
       <div className="w-full max-w-3xl bg-white rounded-xl shadow-lg overflow-hidden h-fit shrink-0">
         {/* Header */}
         <div className="bg-[#1e40af] text-white p-6 flex flex-col sm:flex-row items-center gap-6 relative">
-          <div className="bg-white p-3 rounded-xl shadow-lg border-4 border-white/30 bg-clip-padding h-24 w-56 flex items-center justify-center shrink-0 relative group">
-            {logoBase64 ? (
-              <>
-                <img 
-                  src={logoBase64} 
-                  alt="Morey Salvá Consulting" 
-                  className="w-full h-full object-contain"
-                />
-                <button 
-                  onClick={removeLogo}
-                  className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:bg-red-600"
-                  title="Eliminar logo"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center text-stone-400 hover:text-[#1e40af] transition-colors w-full h-full"
-              >
-                <Upload className="w-6 h-6 mb-1" />
-                <span className="text-xs font-medium text-center leading-tight">Subir Logo<br/>(JPG/PNG)</span>
-              </button>
-            )}
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleLogoUpload} 
-              accept="image/*" 
-              className="hidden" 
+          <div className="bg-white p-3 rounded-xl shadow-lg border-4 border-white/30 bg-clip-padding h-24 w-56 flex items-center justify-center shrink-0 relative">
+            <img 
+              src="https://i.imgur.com/amGE2wZ.png" 
+              alt="Morey Salvá Consulting" 
+              className="w-full h-full object-contain"
+              crossOrigin="anonymous"
             />
           </div>
           <div className="text-center sm:text-left flex-1">
@@ -571,7 +559,27 @@ export default function App() {
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <label className="block text-sm font-medium text-stone-700">Fecha de notificación</label>
+              <label className="block text-sm font-medium text-stone-700">Dirección del cálculo</label>
+              <div className="flex bg-stone-100 p-1 rounded-lg border border-stone-200">
+                <button
+                  onClick={() => setDireccionCalculo('adelante')}
+                  className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all ${direccionCalculo === 'adelante' ? 'bg-white shadow-sm text-[#1e40af] border border-stone-200' : 'text-stone-500 hover:text-stone-700'}`}
+                >
+                  Hacia adelante (desde notificación)
+                </button>
+                <button
+                  onClick={() => setDireccionCalculo('atras')}
+                  className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all ${direccionCalculo === 'atras' ? 'bg-white shadow-sm text-[#1e40af] border border-stone-200' : 'text-stone-500 hover:text-stone-700'}`}
+                >
+                  Hacia atrás (antelación)
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <label className="block text-sm font-medium text-stone-700">
+                {direccionCalculo === 'adelante' ? 'Fecha de notificación' : 'Fecha de referencia (ej. vista/juicio)'}
+              </label>
               <div className="relative">
                 <input
                   type="date"
@@ -743,7 +751,9 @@ export default function App() {
           {/* Result */}
           {resultado && (
             <div className="mt-8 p-6 bg-emerald-50 border border-emerald-200 rounded-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <h3 className="text-emerald-800 font-semibold mb-2">Fecha de vencimiento:</h3>
+              <h3 className="text-emerald-800 font-semibold mb-2">
+                {direccionCalculo === 'adelante' ? 'Fecha de vencimiento:' : 'Fecha límite de presentación:'}
+              </h3>
               <p className="text-2xl font-bold text-emerald-900">
                 {formatDate(resultado)}
               </p>
